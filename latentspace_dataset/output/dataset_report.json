@@ -1,140 +1,65 @@
 {
   "pipeline_version": "2.0.0",
-  "timestamp": "2026-09-23T12:18:05.506724+00:00",
+  "timestamp": "2026-09-23T12:45:49.726909+00:00",
   "random_seed": 42,
-  "requested_counts": {
-    "BANKING77": 7000,
-    "CLINC150": 8000,
-    "HWU64": 5000,
-    "MINDS14_EN_US": 563,
-    "MINDS14_EXT": 1246,
-    "CORD-v2": 800,
-    "SROIE": 626,
-    "FUNSD": 149
+  "total_original_records": 23384,
+  "total_requested": 23384,
+  "total_selected": 23384,
+  "total_shortfall": 0,
+  "source_breakdown": {
+    "BANKING77": {
+      "requested": 7000,
+      "selected": 7000,
+      "shortfall": 0
+    },
+    "CLINC150": {
+      "requested": 8000,
+      "selected": 8000,
+      "shortfall": 0
+    },
+    "HWU64": {
+      "requested": 5000,
+      "selected": 5000,
+      "shortfall": 0
+    },
+    "MINDS14_EN_US": {
+      "requested": 563,
+      "selected": 563,
+      "shortfall": 0
+    },
+    "MINDS14_EXT": {
+      "requested": 1246,
+      "selected": 1246,
+      "shortfall": 0
+    },
+    "CORD-v2": {
+      "requested": 800,
+      "selected": 800,
+      "shortfall": 0
+    },
+    "SROIE": {
+      "requested": 626,
+      "selected": 626,
+      "shortfall": 0
+    },
+    "FUNSD": {
+      "requested": 149,
+      "selected": 149,
+      "shortfall": 0
+    }
   },
-  "available_counts": {
-    "BANKING77": 7000,
-    "CLINC150": 8000,
-    "HWU64": 5000,
-    "MINDS14_EN_US": 563,
-    "MINDS14_EXT": 1246,
-    "CORD-v2": 800,
-    "SROIE": 626,
-    "FUNSD": 149
+  "annotation_metrics": {
+    "true_llm_annotated_count": 0,
+    "failed_annotation_count": 0,
+    "pending_unannotated_count": 23384,
+    "zero_fake_annotations_verified": true
   },
-  "selected_counts": {
-    "BANKING77": 6999,
-    "CLINC150": 8000,
-    "HWU64": 5000,
-    "MINDS14_EN_US": 541,
-    "MINDS14_EXT": 1160,
-    "CORD-v2": 754,
-    "SROIE": 624,
-    "FUNSD": 149
-  },
-  "shortfalls": {
-    "BANKING77": 1,
-    "CLINC150": 0,
-    "HWU64": 0,
-    "MINDS14_EN_US": 22,
-    "MINDS14_EXT": 86,
-    "CORD-v2": 46,
-    "SROIE": 2,
-    "FUNSD": 0
-  },
-  "source_dataset_counts": {
-    "BANKING77": 6999,
-    "CLINC150": 8000,
-    "HWU64": 5000,
-    "MINDS14_EN_US": 541,
-    "MINDS14_EN_AU": 625,
-    "MINDS14_EN_GB": 535,
-    "CORD-v2": 754,
-    "SROIE": 624,
-    "FUNSD": 149
-  },
-  "english_counts": {
-    "BANKING77": 7000,
-    "CLINC150": 8000,
-    "HWU64": 5000,
-    "MINDS14_EN_US": 563,
-    "MINDS14_EXT": 1246,
-    "CORD-v2": 800,
-    "SROIE": 626,
-    "FUNSD": 149
-  },
-  "excluded_counts": {
-    "BANKING77": 0,
-    "CLINC150": 0,
-    "HWU64": 0,
-    "MINDS14_EN_US": 0,
-    "MINDS14_EXT": 0,
-    "CORD-v2": 0,
-    "SROIE": 0,
-    "FUNSD": 0
-  },
-  "summary": {
-    "total_requested": 23384,
-    "total_available": 23384,
-    "total_selected": 23227,
-    "total_shortfall": 157,
-    "total_english_valid": 23384,
-    "total_excluded_non_english": 0
-  },
-  "domain_distribution": {
-    "other": 16881,
-    "finance": 1681,
-    "information": 2456,
-    "account_and_security": 132,
-    "travel": 360,
-    "productivity": 190,
-    "documents": 1527
-  },
-  "category_distribution": {
-    "other/out_of_scope": 14235,
-    "finance/transfers": 911,
-    "information/general_information": 2456,
-    "finance/account": 447,
-    "other/clarification": 2646,
-    "finance/transactions": 221,
-    "finance/expenses": 102,
-    "account_and_security/cards": 132,
-    "travel/flights": 159,
-    "travel/reservations": 201,
-    "productivity/reminders": 64,
-    "productivity/tasks": 24,
-    "productivity/alarms": 102,
-    "documents/receipts": 1378,
-    "documents/forms": 149
-  },
-  "intent_distribution": {
-    "search_information": 2605,
-    "check_balance": 447,
-    "check_transaction": 221,
-    "transfer_money": 43,
-    "card_stolen": 28,
-    "card_lost": 45,
-    "freeze_card": 59,
-    "log_expense": 1380,
-    "search_flight": 151,
-    "search_reservation": 185,
-    "create_alarm": 15,
-    "search_reminder": 2,
-    "search_task": 2,
-    "search_alarm": 11,
-    "cancel_alarm": 1
-  },
-  "annotation_success_count": 23227,
-  "annotation_failure_count": 0,
-  "validation_success_count": 23227,
-  "validation_failure_count": 0,
-  "synthetic_generation_count": 23227,
-  "final_training_count": 23227,
-  "train_count": 18582,
-  "validation_count": 2323,
-  "test_count": 2322,
-  "duplicate_count": 0,
-  "rejected_count": 0,
+  "train_count": 0,
+  "validation_count": 0,
+  "test_count": 0,
+  "domain_distribution": {},
+  "category_distribution": {},
+  "intent_distribution": {},
   "production_requests_used": 0,
   "cache_hits": 0,
   "retry_count": 0

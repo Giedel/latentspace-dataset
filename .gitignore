@@ -14,5 +14,6 @@ venv/
 *.token
 
 # Dataset cache
-latentspace_dataset/cache/
+latentspace_dataset/cache/annotations/
+latentspace_dataset/cache/*.tmp*
 *.tmp*
