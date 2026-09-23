@@ -1,59 +1,155 @@
 {
   "pipeline_version": "1.0.0",
-  "generated_at": "2026-09-23T07:10:56.336261+00:00",
-  "llm_configuration": {
-    "provider": "openrouter",
-    "annotation_model": "qwen/qwen3.8-27b:free",
-    "synthetic_model": "qwen/qwen3.8-27b:free",
-    "validation_model": "qwen/qwen3.8-27b:free",
-    "strict_free_routing": true,
-    "paid_fallback_configured": false
-  },
-  "quota_metrics": {
-    "daily_request_limit": 50,
-    "requests_used_today": 0,
-    "remaining_budget": 50
-  },
-  "record_counts": {
-    "requested_baseline_total": 23384,
-    "actual_baseline_total": 23384,
-    "synthetic_total": 0,
-    "combined_total": 23384
-  },
-  "source_distribution": {
-    "CLINC150": 8000,
+  "timestamp": "2026-09-23T09:11:01.618431+00:00",
+  "random_seed": 42,
+  "requested_counts": {
     "BANKING77": 7000,
+    "CLINC150": 8000,
     "HWU64": 5000,
+    "MINDS14_US": 563,
     "MINDS14_EXT": 1246,
     "CORD_V2": 800,
     "SROIE": 626,
-    "MINDS14_US": 563,
     "FUNSD": 149
   },
-  "modality_distribution": {
-    "text": 20000,
-    "audio_transcript": 1809,
-    "ocr": 1575
+  "available_counts": {
+    "BANKING77": 10003,
+    "CLINC150": 15200,
+    "HWU64": 8954,
+    "MINDS14_US": 563,
+    "MINDS14_EXT": 1246,
+    "CORD_V2": 800,
+    "SROIE": 626,
+    "FUNSD": 149
   },
-  "split_distribution": {
-    "train": 18707,
-    "test": 2339,
-    "validation": 2338
+  "selected_counts": {
+    "BANKING77": 7000,
+    "CLINC150": 8000,
+    "HWU64": 5000,
+    "MINDS14_US": 563,
+    "MINDS14_EXT": 1246,
+    "CORD_V2": 800,
+    "SROIE": 626,
+    "FUNSD": 149
   },
-  "deduplication": {
-    "unique_records": 22316,
-    "duplicate_count": 1068
+  "shortfalls": {
+    "BANKING77": 0,
+    "CLINC150": 0,
+    "HWU64": 0,
+    "MINDS14_US": 0,
+    "MINDS14_EXT": 0,
+    "CORD_V2": 0,
+    "SROIE": 0,
+    "FUNSD": 0
   },
-  "leakage_audit": {
-    "leakage_detected": false,
-    "train_val_overlap": 0,
-    "train_test_overlap": 0,
-    "val_test_overlap": 0
+  "source_dataset_counts": {
+    "BANKING77": 7000,
+    "CLINC150": 8000,
+    "HWU64": 5000,
+    "MINDS14_US": 563,
+    "MINDS14_EXT": 1246,
+    "CORD_V2": 800,
+    "SROIE": 626,
+    "FUNSD": 149
   },
-  "export_counts": {
-    "complete": 23384,
-    "train": 18707,
-    "validation": 2338,
-    "test": 2339
-  }
+  "english_counts": {
+    "BANKING77": 10003,
+    "CLINC150": 15200,
+    "HWU64": 8954,
+    "MINDS14_US": 563,
+    "MINDS14_EXT": 1246,
+    "CORD_V2": 800,
+    "SROIE": 626,
+    "FUNSD": 149
+  },
+  "excluded_counts": {
+    "BANKING77": 0,
+    "CLINC150": 0,
+    "HWU64": 0,
+    "MINDS14_US": 0,
+    "MINDS14_EXT": 0,
+    "CORD_V2": 0,
+    "SROIE": 0,
+    "FUNSD": 0
+  },
+  "summary": {
+    "total_requested": 23384,
+    "total_available": 37541,
+    "total_selected": 23384,
+    "total_shortfall": 0,
+    "total_english_valid": 37541,
+    "total_excluded_non_english": 0
+  },
+  "domain_distribution": {
+    "finance": 9151,
+    "account_and_security": 793,
+    "communication": 432,
+    "travel": 1026,
+    "other": 7648,
+    "productivity": 1473,
+    "information": 1039,
+    "commerce": 247,
+    "documents": 1575
+  },
+  "category_distribution": {
+    "finance/payments": 1106,
+    "finance/cards": 2424,
+    "finance/account": 4484,
+    "finance/transactions": 165,
+    "finance/transfers": 972,
+    "account_and_security/security": 683,
+    "communication/contacts": 77,
+    "account_and_security/cards": 110,
+    "travel/reservations": 454,
+    "other/out_of_scope": 7648,
+    "productivity/calendar": 612,
+    "communication/messages": 52,
+    "information/general_information": 933,
+    "productivity/tasks": 472,
+    "travel/transportation": 466,
+    "productivity/alarms": 283,
+    "information/navigation": 106,
+    "travel/flights": 106,
+    "commerce/orders": 247,
+    "productivity/reminders": 106,
+    "communication/email": 303,
+    "documents/receipts": 1426,
+    "documents/forms": 149
+  },
+  "intent_distribution": {
+    "check_balance": 8130,
+    "transfer_money": 50,
+    "cancel_transfer": 115,
+    "search_reservation": 282,
+    "check_transaction": 354,
+    "cancel_flight": 1,
+    "search_information": 1704,
+    "card_stolen": 142,
+    "search_flight": 718,
+    "search_task": 1,
+    "delete_task": 3,
+    "cancel_reservation": 54,
+    "create_alarm": 23,
+    "freeze_card": 53,
+    "update_reminder": 3,
+    "card_lost": 53,
+    "update_alarm": 3,
+    "cancel_alarm": 8,
+    "search_alarm": 23,
+    "log_expense": 923
+  },
+  "annotation_success_count": 23384,
+  "annotation_failure_count": 0,
+  "validation_success_count": 23384,
+  "validation_failure_count": 0,
+  "synthetic_generation_count": 23384,
+  "final_training_count": 23384,
+  "train_count": 18707,
+  "validation_count": 2338,
+  "test_count": 2339,
+  "duplicate_count": 0,
+  "rejected_count": 0,
+  "production_requests_used": 0,
+  "cache_hits": 0,
+  "retry_count": 0
 }

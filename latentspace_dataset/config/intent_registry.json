@@ -7,233 +7,423 @@
     "log_expense": {
       "domain": "financial",
       "description": "Record a monetary expense or purchase.",
-      "required_entities": ["amount"],
-      "optional_entities": ["merchant", "category", "date", "currency", "description", "receipt_id"],
+      "required_entities": [
+        "amount"
+      ],
+      "optional_entities": [
+        "merchant",
+        "category",
+        "date",
+        "currency",
+        "description",
+        "receipt_id"
+      ],
       "execution_type": "write"
     },
     "delete_expense": {
       "domain": "financial",
       "description": "Delete or remove an existing recorded expense.",
       "required_entities": [],
-      "optional_entities": ["expense_id", "merchant", "amount", "date", "transaction_reference"],
+      "optional_entities": [
+        "expense_id",
+        "merchant",
+        "amount",
+        "date",
+        "transaction_reference"
+      ],
       "execution_type": "delete"
     },
     "search_expense": {
       "domain": "financial",
       "description": "Search or query recorded expenses by merchant, category, date, or amount.",
       "required_entities": [],
-      "optional_entities": ["merchant", "category", "date_range", "amount_range", "query"],
+      "optional_entities": [
+        "merchant",
+        "category",
+        "date_range",
+        "amount_range",
+        "query"
+      ],
       "execution_type": "read"
     },
     "update_expense": {
       "domain": "financial",
       "description": "Modify details of an existing recorded expense.",
       "required_entities": [],
-      "optional_entities": ["expense_id", "amount", "merchant", "category", "date", "transaction_reference"],
+      "optional_entities": [
+        "expense_id",
+        "amount",
+        "merchant",
+        "category",
+        "date",
+        "transaction_reference"
+      ],
       "execution_type": "update"
     },
     "transfer_money": {
       "domain": "financial",
       "description": "Transfer funds between accounts or send money to a recipient.",
-      "required_entities": ["amount"],
-      "optional_entities": ["recipient", "source_account", "destination_account", "currency", "note", "schedule"],
+      "required_entities": [
+        "amount"
+      ],
+      "optional_entities": [
+        "recipient",
+        "source_account",
+        "destination_account",
+        "currency",
+        "note",
+        "schedule"
+      ],
       "execution_type": "write"
     },
     "check_balance": {
       "domain": "financial",
       "description": "Query account balance or available funds.",
       "required_entities": [],
-      "optional_entities": ["account_type", "account_id", "currency"],
+      "optional_entities": [
+        "account_type",
+        "account_id",
+        "currency"
+      ],
       "execution_type": "read"
     },
     "check_transaction": {
       "domain": "financial",
       "description": "Inspect recent transactions, deposits, or order/card history.",
       "required_entities": [],
-      "optional_entities": ["transaction_id", "merchant", "date_range", "amount", "card_type"],
+      "optional_entities": [
+        "transaction_id",
+        "merchant",
+        "date_range",
+        "amount",
+        "card_type"
+      ],
       "execution_type": "read"
     },
     "cancel_transfer": {
       "domain": "financial",
       "description": "Cancel a pending or scheduled fund transfer.",
       "required_entities": [],
-      "optional_entities": ["transfer_id", "recipient", "amount", "date"],
+      "optional_entities": [
+        "transfer_id",
+        "recipient",
+        "amount",
+        "date"
+      ],
       "execution_type": "delete"
     },
     "card_lost": {
       "domain": "financial",
       "description": "Report a payment card as lost.",
       "required_entities": [],
-      "optional_entities": ["card_type", "last_four_digits", "replacement_requested"],
+      "optional_entities": [
+        "card_type",
+        "last_four_digits",
+        "replacement_requested"
+      ],
       "execution_type": "write"
     },
     "card_stolen": {
       "domain": "financial",
       "description": "Report a payment card as stolen.",
       "required_entities": [],
-      "optional_entities": ["card_type", "last_four_digits", "incident_time", "replacement_requested"],
+      "optional_entities": [
+        "card_type",
+        "last_four_digits",
+        "incident_time",
+        "replacement_requested"
+      ],
       "execution_type": "write"
     },
     "freeze_card": {
       "domain": "financial",
       "description": "Temporarily lock or freeze a payment card.",
       "required_entities": [],
-      "optional_entities": ["card_type", "last_four_digits"],
+      "optional_entities": [
+        "card_type",
+        "last_four_digits"
+      ],
       "execution_type": "update"
     },
     "unfreeze_card": {
       "domain": "financial",
       "description": "Unlock or unfreeze a previously frozen payment card.",
       "required_entities": [],
-      "optional_entities": ["card_type", "last_four_digits"],
+      "optional_entities": [
+        "card_type",
+        "last_four_digits"
+      ],
       "execution_type": "update"
     },
     "create_task": {
       "domain": "productivity",
       "description": "Add a task or item to a todo list.",
-      "required_entities": ["title"],
-      "optional_entities": ["due_date", "priority", "category", "assignee", "notes"],
+      "required_entities": [
+        "title"
+      ],
+      "optional_entities": [
+        "due_date",
+        "priority",
+        "category",
+        "assignee",
+        "notes"
+      ],
       "execution_type": "write"
     },
     "complete_task": {
       "domain": "productivity",
       "description": "Mark an existing task or todo item as finished.",
       "required_entities": [],
-      "optional_entities": ["task_id", "title", "task_reference"],
+      "optional_entities": [
+        "task_id",
+        "title",
+        "task_reference"
+      ],
       "execution_type": "update"
     },
     "delete_task": {
       "domain": "productivity",
       "description": "Remove or delete a task from a list.",
       "required_entities": [],
-      "optional_entities": ["task_id", "title", "task_reference"],
+      "optional_entities": [
+        "task_id",
+        "title",
+        "task_reference"
+      ],
       "execution_type": "delete"
     },
     "update_task": {
       "domain": "productivity",
       "description": "Modify the properties, title, or due date of an existing task.",
       "required_entities": [],
-      "optional_entities": ["task_id", "title", "new_title", "due_date", "priority", "task_reference"],
+      "optional_entities": [
+        "task_id",
+        "title",
+        "new_title",
+        "due_date",
+        "priority",
+        "task_reference"
+      ],
       "execution_type": "update"
     },
     "search_task": {
       "domain": "productivity",
       "description": "Find or query tasks in the user's task list.",
       "required_entities": [],
-      "optional_entities": ["query", "due_date", "status", "priority"],
+      "optional_entities": [
+        "query",
+        "due_date",
+        "status",
+        "priority"
+      ],
       "execution_type": "read"
     },
     "create_reminder": {
       "domain": "productivity",
       "description": "Schedule a notification or reminder for a specific event or time.",
-      "required_entities": ["task"],
-      "optional_entities": ["schedule", "due_date", "time", "recurring", "priority"],
+      "required_entities": [
+        "task"
+      ],
+      "optional_entities": [
+        "schedule",
+        "due_date",
+        "time",
+        "recurring",
+        "priority"
+      ],
       "execution_type": "write"
     },
     "cancel_reminder": {
       "domain": "productivity",
       "description": "Cancel an active or scheduled reminder.",
       "required_entities": [],
-      "optional_entities": ["reminder_id", "task", "schedule", "reminder_reference"],
+      "optional_entities": [
+        "reminder_id",
+        "task",
+        "schedule",
+        "reminder_reference"
+      ],
       "execution_type": "delete"
     },
     "update_reminder": {
       "domain": "productivity",
       "description": "Update the trigger time or message of a scheduled reminder.",
       "required_entities": [],
-      "optional_entities": ["reminder_id", "task", "new_schedule", "reminder_reference"],
+      "optional_entities": [
+        "reminder_id",
+        "task",
+        "new_schedule",
+        "reminder_reference"
+      ],
       "execution_type": "update"
     },
     "search_reminder": {
       "domain": "productivity",
       "description": "Look up upcoming or past reminders.",
       "required_entities": [],
-      "optional_entities": ["query", "schedule_range", "status"],
+      "optional_entities": [
+        "query",
+        "schedule_range",
+        "status"
+      ],
       "execution_type": "read"
     },
     "create_alarm": {
       "domain": "productivity",
       "description": "Set an alarm for a specific time.",
-      "required_entities": ["time"],
-      "optional_entities": ["label", "recurring", "sound"],
+      "required_entities": [
+        "time"
+      ],
+      "optional_entities": [
+        "label",
+        "recurring",
+        "sound"
+      ],
       "execution_type": "write"
     },
     "cancel_alarm": {
       "domain": "productivity",
       "description": "Disable or turn off an alarm.",
       "required_entities": [],
-      "optional_entities": ["alarm_id", "time", "label"],
+      "optional_entities": [
+        "alarm_id",
+        "time",
+        "label"
+      ],
       "execution_type": "delete"
     },
     "update_alarm": {
       "domain": "productivity",
       "description": "Modify the time or settings of an existing alarm.",
       "required_entities": [],
-      "optional_entities": ["alarm_id", "new_time", "label"],
+      "optional_entities": [
+        "alarm_id",
+        "new_time",
+        "label"
+      ],
       "execution_type": "update"
     },
     "book_reservation": {
       "domain": "booking",
       "description": "Reserve a table, venue, or accommodation.",
-      "required_entities": ["venue"],
-      "optional_entities": ["date", "time", "party_size", "reservation_type", "special_requests"],
+      "required_entities": [
+        "venue"
+      ],
+      "optional_entities": [
+        "date",
+        "time",
+        "party_size",
+        "reservation_type",
+        "special_requests"
+      ],
       "execution_type": "write"
     },
     "cancel_reservation": {
       "domain": "booking",
       "description": "Cancel an existing reservation.",
       "required_entities": [],
-      "optional_entities": ["reservation_id", "venue", "date", "reservation_reference"],
+      "optional_entities": [
+        "reservation_id",
+        "venue",
+        "date",
+        "reservation_reference"
+      ],
       "execution_type": "delete"
     },
     "search_reservation": {
       "domain": "booking",
       "description": "Search for reservation availability or existing bookings.",
       "required_entities": [],
-      "optional_entities": ["venue", "date", "party_size", "query"],
+      "optional_entities": [
+        "venue",
+        "date",
+        "party_size",
+        "query"
+      ],
       "execution_type": "read"
     },
     "search_flight": {
       "domain": "booking",
       "description": "Search for flight schedules, routes, or prices.",
       "required_entities": [],
-      "optional_entities": ["origin", "destination", "departure_date", "return_date", "passengers"],
+      "optional_entities": [
+        "origin",
+        "destination",
+        "departure_date",
+        "return_date",
+        "passengers"
+      ],
       "execution_type": "read"
     },
     "book_flight": {
       "domain": "booking",
       "description": "Book or purchase an airline flight ticket.",
-      "required_entities": ["destination"],
-      "optional_entities": ["flight_number", "origin", "departure_date", "seat_class", "passengers"],
+      "required_entities": [
+        "destination"
+      ],
+      "optional_entities": [
+        "flight_number",
+        "origin",
+        "departure_date",
+        "seat_class",
+        "passengers"
+      ],
       "execution_type": "write"
     },
     "cancel_flight": {
       "domain": "booking",
       "description": "Cancel a booked flight.",
       "required_entities": [],
-      "optional_entities": ["booking_reference", "flight_number", "date"],
+      "optional_entities": [
+        "booking_reference",
+        "flight_number",
+        "date"
+      ],
       "execution_type": "delete"
     },
     "search_information": {
       "domain": "information",
       "description": "Informational or knowledge query that does not represent an executable assistant action.",
       "required_entities": [],
-      "optional_entities": ["topic", "query"],
+      "optional_entities": [
+        "topic",
+        "query"
+      ],
       "execution_type": "read"
     },
     "out_of_scope": {
       "domain": "control",
       "description": "A user request that falls outside supported assistant capabilities or domain bounds.",
       "required_entities": [],
-      "optional_entities": ["raw_request", "reason"],
+      "optional_entities": [
+        "raw_request",
+        "reason"
+      ],
       "execution_type": "control"
     },
     "clarification_required": {
       "domain": "control",
       "description": "An action was requested but essential information is missing, requiring clarification.",
-      "required_entities": ["missing_information"],
-      "optional_entities": ["intended_intent", "provided_entities"],
+      "required_entities": [
+        "missing_information"
+      ],
+      "optional_entities": [
+        "intended_intent",
+        "provided_entities"
+      ],
       "execution_type": "control"
+    },
+    "search_alarm": {
+      "intent_name": "search_alarm",
+      "domain": "productivity",
+      "description": "Search or query existing alarms by time, label, or status.",
+      "required_entities": [],
+      "optional_entities": [
+        "time",
+        "label",
+        "status"
+      ],
+      "execution_type": "read"
     }
   }
 }
