@@ -1,6 +1,10 @@
 """
 LatentSpace Dataset Pipeline: Master Implementation.
-Transforms heterogeneous source datasets into a high-quality agentic training dataset.
+Revised Architecture:
+1. original_dataset.csv contains ONLY: raw_text, source
+2. Agentic synthesis/annotation is performed AFTER original dataset is constructed.
+3. Strict universal tool contract: dispatch_actions.
+4. No fake execution results, no chain-of-thought, zero domain fallback drift.
 """
 
 import os
@@ -24,7 +28,7 @@ import numpy as np
 # ==============================================================================
 @dataclass(frozen=True)
 class PipelineConfig:
-    pipeline_version: str = "1.0.0"
+    pipeline_version: str = "2.0.0"
     random_seed: int = 42
 
     llm_provider: str = "openrouter"
@@ -59,6 +63,9 @@ class PipelineConfig:
     target_funsd: int = 149
     total_target: int = 23384
 
+    dry_run_mode: bool = False  # Set to True for testing without production LLM calls
+    test_mode_batch_limit: int = 5
+
     base_dir: str = "latentspace_dataset"
     output_dir: str = "latentspace_dataset/output"
     cache_dir: str = "latentspace_dataset/cache"
@@ -66,7 +73,7 @@ class PipelineConfig:
     prompts_dir: str = "latentspace_dataset/prompts"
 
 # ==============================================================================
-# TAXONOMY & INTENT REGISTRY
+# TAXONOMY & UNIVERSAL TOOL CONTRACT
 # ==============================================================================
 DOMAINS = [
     "finance", "productivity", "travel", "commerce",
@@ -150,110 +157,18 @@ class IntentRegistry:
         return self.intents.get(intent_name)
 
 # ==============================================================================
-# TAXONOMY MAPPER (Source -> Controlled Taxonomy)
-# ==============================================================================
-class TaxonomyMapper:
-    """Maps source category/intent to controlled LatentSpace domain and category."""
-    @staticmethod
-    def map_taxonomy(source_dataset: str, source_intent: str, text: str) -> Tuple[str, str]:
-        si = (source_intent or "").lower().replace(" ", "_")
-        t = (text or "").lower()
-
-        # Documents
-        if source_dataset in ("CORD_V2", "SROIE"):
-            return "documents", "documents/receipts"
-        if source_dataset == "FUNSD":
-            return "documents", "documents/forms"
-
-        # Account & Security
-        if any(k in si for k in ("pin", "password", "security", "compromised", "verify_identity", "passcode")):
-            return "account_and_security", "account_and_security/security"
-        if any(k in si for k in ("card_lost", "card_stolen", "lost_or_stolen_card", "freeze", "compromised_card")):
-            return "account_and_security", "account_and_security/cards"
-
-        # Finance
-        if any(k in si for k in ("balance", "check_balance", "account")):
-            return "finance", "finance/account"
-        if any(k in si for k in ("transfer", "wire", "beneficiary", "recipient")):
-            return "finance", "finance/transfers"
-        if any(k in si for k in ("card", "visa", "mastercard", "virtual_card", "card_arrival", "order_physical_card")):
-            return "finance", "finance/cards"
-        if any(k in si for k in ("payment", "pay", "bill", "direct_debit", "refund", "charge")):
-            return "finance", "finance/payments"
-        if any(k in si for k in ("expense", "spending", "receipt", "transaction", "atm")):
-            return "finance", "finance/transactions"
-
-        # Productivity
-        if any(k in si for k in ("alarm", "set_alarm", "wake")):
-            return "productivity", "productivity/alarms"
-        if any(k in si for k in ("reminder", "remind")):
-            return "productivity", "productivity/reminders"
-        if any(k in si for k in ("task", "todo", "list")):
-            return "productivity", "productivity/tasks"
-        if any(k in si for k in ("calendar", "schedule", "meeting", "event")):
-            return "productivity", "productivity/calendar"
-        if any(k in si for k in ("note", "memo")):
-            return "productivity", "productivity/notes"
-
-        # Travel
-        if any(k in si for k in ("flight", "airline", "plane")):
-            return "travel", "travel/flights"
-        if any(k in si for k in ("reservation", "restaurant", "hotel", "book")):
-            return "travel", "travel/reservations"
-        if any(k in si for k in ("uber", "taxi", "traffic", "train", "car")):
-            return "travel", "travel/transportation"
-
-        # Communication
-        if any(k in si for k in ("email", "mail")):
-            return "communication", "communication/email"
-        if any(k in si for k in ("message", "text", "sms")):
-            return "communication", "communication/messages"
-        if any(k in si for k in ("contact", "call")):
-            return "communication", "communication/contacts"
-
-        # Commerce
-        if any(k in si for k in ("order", "shipping", "delivery", "track")):
-            return "commerce", "commerce/orders"
-        if any(k in si for k in ("subscription", "cancel_sub")):
-            return "commerce", "commerce/subscriptions"
-        if any(k in si for k in ("shopping", "buy", "purchase")):
-            return "commerce", "commerce/purchases"
-
-        # Information
-        if any(k in si for k in ("weather", "time", "date", "definition", "fact", "calculate", "math", "convert")):
-            return "information", "information/general_information"
-        if any(k in si for k in ("direction", "map", "navigation", "distance")):
-            return "information", "information/navigation"
-
-        # Other / Out of Scope / Clarification
-        if any(k in si for k in ("oos", "out_of_scope", "unsupported", "unknown")):
-            return "other", "other/out_of_scope"
-        if any(k in si for k in ("clarify", "missing", "incomplete")):
-            return "other", "other/clarification"
-
-        # Default fallback
-        if source_dataset in ("BANKING77", "MINDS14_US", "MINDS14_EXT"):
-            return "finance", "finance/account"
-        return "other", "other/out_of_scope"
-
-# ==============================================================================
-# UNICODE-SAFE ENGLISH VALIDATION
+# UNICODE-SAFE LANGUAGE VALIDATION
 # ==============================================================================
 def is_unicode_safe_english(text: Optional[str]) -> bool:
-    """
-    Validates that text is sufficiently English while being safe with Unicode
-    contractions, currency symbols, accented names, abbreviations, and OCR noise.
-    """
     if not text or not isinstance(text, str):
         return False
     cleaned = text.strip()
     if len(cleaned) < 2:
         return False
-    # Check that majority of alphabetical characters are Latin
     latin_chars = len(re.findall(r"[A-Za-z]", cleaned))
     all_alphas = len([c for c in cleaned if c.isalpha()])
     if all_alphas == 0:
-        return True # Numbers/currency only is acceptable in receipts
+        return True  # Digits, currency symbols, and punctuation only are valid in receipts/forms
     return (latin_chars / all_alphas) >= 0.85
 
 # ==============================================================================
@@ -336,6 +251,11 @@ class OpenRouterProvider(LLMProvider):
         self.config = config
         self.ledger = ledger
         self.api_key = os.environ.get("OPENROUTER_API_KEY", "")
+        try:
+            from google.colab import userdata
+            self.api_key = self.api_key or userdata.get("OPENROUTER_API_KEY", "")
+        except Exception:
+            pass
 
     def is_configured(self) -> bool:
         return bool(self.api_key)
@@ -375,7 +295,6 @@ class OpenRouterProvider(LLMProvider):
         attempt_id = f"req_{int(time.time()*1000)}"
         try:
             with urllib.request.urlopen(req, timeout=self.config.request_timeout) as resp:
-                status = resp.status
                 body = json.loads(resp.read().decode("utf-8"))
                 latency = int((time.time() - t0) * 1000)
                 self.ledger.record_attempt({
@@ -383,7 +302,7 @@ class OpenRouterProvider(LLMProvider):
                     "attempt_id": attempt_id,
                     "is_test": is_test,
                     "model": self.config.annotation_model,
-                    "http_status": status,
+                    "http_status": resp.status,
                     "error_category": None,
                     "latency_ms": latency
                 })
@@ -402,83 +321,18 @@ class OpenRouterProvider(LLMProvider):
             raise e
 
 # ==============================================================================
-# DATASET ADAPTERS (Preserves Heterogeneous Source Records)
+# DATASET ADAPTERS (Extraction of ONLY raw_text and source)
 # ==============================================================================
 class DatasetAdapter(ABC):
-    def __init__(self, dataset_name: str, target_count: int, config: PipelineConfig):
-        self.dataset_name = dataset_name
+    def __init__(self, source_name: str, target_count: int, config: PipelineConfig):
+        self.source_name = source_name
         self.target_count = target_count
         self.config = config
 
     @abstractmethod
     def fetch_records(self) -> List[dict]:
-        """Fetch or load raw records from source, keeping original fields."""
+        """Returns list of dicts with keys: 'raw_text', 'source'."""
         pass
-
-    def select_sample(self, records: List[dict]) -> Tuple[List[dict], dict]:
-        """Deterministic stratified sampling with random_seed = 42."""
-        rng = random.Random(self.config.random_seed)
-        available = len(records)
-        
-        # Filter English valid
-        english_valid = []
-        excluded = []
-        for r in records:
-            txt = r.get("text") or r.get("utterance") or r.get("transcript") or r.get("document_text") or ""
-            if is_unicode_safe_english(txt):
-                english_valid.append(r)
-            else:
-                excluded.append(r)
-
-        valid_count = len(english_valid)
-        if valid_count <= self.target_count:
-            selected = english_valid
-            shortfall = self.target_count - valid_count
-        else:
-            # Stratified by source intent/category if available
-            groups: Dict[str, List[dict]] = {}
-            for r in english_valid:
-                cat = r.get("category") or r.get("label") or r.get("source_intent") or "default"
-                groups.setdefault(str(cat), []).append(r)
-            
-            selected = []
-            keys = sorted(list(groups.keys()))
-            for k in keys:
-                rng.shuffle(groups[k])
-
-            # Proportional allocation
-            allocated = {}
-            for k in keys:
-                prop = len(groups[k]) / valid_count
-                allocated[k] = max(1, int(round(prop * self.target_count)))
-            
-            # Adjust rounding
-            curr_total = sum(allocated.values())
-            diff = self.target_count - curr_total
-            for k in keys:
-                if diff == 0:
-                    break
-                if diff > 0 and len(groups[k]) > allocated[k]:
-                    allocated[k] += 1
-                    diff -= 1
-                elif diff < 0 and allocated[k] > 1:
-                    allocated[k] -= 1
-                    diff += 1
-
-            for k in keys:
-                selected.extend(groups[k][:allocated[k]])
-            shortfall = max(0, self.target_count - len(selected))
-
-        stats = {
-            "dataset_name": self.dataset_name,
-            "requested": self.target_count,
-            "available": available,
-            "english_valid": valid_count,
-            "excluded_non_english": len(excluded),
-            "selected": len(selected),
-            "shortfall": shortfall
-        }
-        return selected, stats
 
 class Banking77Adapter(DatasetAdapter):
     def __init__(self, config: PipelineConfig):
@@ -487,28 +341,26 @@ class Banking77Adapter(DatasetAdapter):
     def fetch_records(self) -> List[dict]:
         cache_file = os.path.join(self.config.cache_dir, "sources", "banking77.json")
         if os.path.exists(cache_file):
-            return json.load(open(cache_file, "r", encoding="utf-8"))
+            raw = json.load(open(cache_file, "r", encoding="utf-8"))
+            df_raw = pd.DataFrame(raw)
+        else:
+            url = "https://raw.githubusercontent.com/PolyAI-LDN/task-specific-datasets/master/banking_data/train.csv"
+            try:
+                df_raw = pd.read_csv(url)
+            except Exception:
+                from datasets import load_dataset
+                df_raw = pd.DataFrame(load_dataset("PolyAI/banking77", split="train"))
 
-        url = "https://raw.githubusercontent.com/PolyAI-LDN/task-specific-datasets/master/banking_data/train.csv"
-        try:
-            df = pd.read_csv(url)
-        except:
-            from datasets import load_dataset
-            ds = load_dataset("PolyAI/banking77", split="train")
-            df = pd.DataFrame(ds)
+        b_target = min(self.target_count, len(df_raw))
+        sample = df_raw.sample(n=b_target, random_state=self.config.random_seed)
 
-        records = []
-        for i, row in df.iterrows():
-            records.append({
-                "source_dataset": "BANKING77",
-                "source_record_id": f"BANKING77_{i:06d}",
-                "source_split": "train",
-                "text": str(row.get("text", "")).strip(),
-                "category": str(row.get("category", row.get("label", ""))).strip()
-            })
-        os.makedirs(os.path.dirname(cache_file), exist_ok=True)
-        json.dump(records, open(cache_file, "w", encoding="utf-8"))
-        return records
+        return [
+            {
+                "raw_text": str(row.get("text", "")).strip(),
+                "source": "BANKING77"
+            }
+            for _, row in sample.iterrows()
+        ]
 
 class Clinc150Adapter(DatasetAdapter):
     def __init__(self, config: PipelineConfig):
@@ -517,28 +369,32 @@ class Clinc150Adapter(DatasetAdapter):
     def fetch_records(self) -> List[dict]:
         cache_file = os.path.join(self.config.cache_dir, "sources", "clinc150.json")
         if os.path.exists(cache_file):
-            return json.load(open(cache_file, "r", encoding="utf-8"))
+            raw = json.load(open(cache_file, "r", encoding="utf-8"))
+            c_target = min(self.target_count, len(raw))
+            rng = random.Random(self.config.random_seed)
+            shuffled = list(raw)
+            rng.shuffle(shuffled)
+            selected = shuffled[:c_target]
+            return [
+                {
+                    "raw_text": str(item.get("utterance", "")).strip(),
+                    "source": "CLINC150"
+                }
+                for item in selected
+            ]
 
         from datasets import load_dataset
-        clinc_intents = load_dataset("DeepPavlov/clinc150", "intents", split="intents")
-        label_map = {x["id"]: x["name"] for x in clinc_intents}
-        ds = load_dataset("DeepPavlov/clinc150", split="train")
+        clinc_raw = load_dataset("DeepPavlov/clinc150", name="default", split="train")
+        c_target = min(self.target_count, len(clinc_raw))
+        clinc_sample = clinc_raw.shuffle(seed=self.config.random_seed).select(range(c_target))
 
-        records = []
-        for i, row in enumerate(ds):
-            lbl_id = row.get("label")
-            lbl_name = label_map.get(lbl_id, str(lbl_id))
-            records.append({
-                "source_dataset": "CLINC150",
-                "source_record_id": f"CLINC150_{i:06d}",
-                "source_split": "train",
-                "utterance": str(row.get("utterance", "")).strip(),
-                "label": lbl_id,
-                "source_intent": lbl_name
-            })
-        os.makedirs(os.path.dirname(cache_file), exist_ok=True)
-        json.dump(records, open(cache_file, "w", encoding="utf-8"))
-        return records
+        return [
+            {
+                "raw_text": str(row["utterance"]).strip(),
+                "source": "CLINC150"
+            }
+            for row in clinc_sample
+        ]
 
 class Hwu64Adapter(DatasetAdapter):
     def __init__(self, config: PipelineConfig):
@@ -547,56 +403,66 @@ class Hwu64Adapter(DatasetAdapter):
     def fetch_records(self) -> List[dict]:
         cache_file = os.path.join(self.config.cache_dir, "sources", "hwu64.json")
         if os.path.exists(cache_file):
-            return json.load(open(cache_file, "r", encoding="utf-8"))
+            raw = json.load(open(cache_file, "r", encoding="utf-8"))
+            h_target = min(self.target_count, len(raw))
+            rng = random.Random(self.config.random_seed)
+            shuffled = list(raw)
+            rng.shuffle(shuffled)
+            selected = shuffled[:h_target]
+            return [
+                {
+                    "raw_text": str(item.get("utterance", "")).strip(),
+                    "source": "HWU64"
+                }
+                for item in selected
+            ]
 
         from datasets import load_dataset
-        hwu_intents = load_dataset("DeepPavlov/hwu64", "intents", split="intents")
-        label_map = {x["id"]: x["name"] for x in hwu_intents}
-        ds = load_dataset("DeepPavlov/hwu64", split="train")
+        hwu_raw = load_dataset("DeepPavlov/hwu64", name="default", split="train")
+        h_target = min(self.target_count, len(hwu_raw))
+        hwu_sample = hwu_raw.shuffle(seed=self.config.random_seed).select(range(h_target))
 
-        records = []
-        for i, row in enumerate(ds):
-            lbl_id = row.get("label")
-            lbl_name = label_map.get(lbl_id, str(lbl_id))
-            records.append({
-                "source_dataset": "HWU64",
-                "source_record_id": f"HWU64_{i:06d}",
-                "source_split": "train",
-                "utterance": str(row.get("utterance", "")).strip(),
-                "label": lbl_id,
-                "source_category": lbl_name
-            })
-        os.makedirs(os.path.dirname(cache_file), exist_ok=True)
-        json.dump(records, open(cache_file, "w", encoding="utf-8"))
-        return records
+        return [
+            {
+                "raw_text": str(row["utterance"]).strip(),
+                "source": "HWU64"
+            }
+            for row in hwu_sample
+        ]
 
 class Minds14USAdapter(DatasetAdapter):
     def __init__(self, config: PipelineConfig):
-        super().__init__("MINDS14_US", config.target_minds14_us, config)
+        super().__init__("MINDS14_EN_US", config.target_minds14_us, config)
 
     def fetch_records(self) -> List[dict]:
         cache_file = os.path.join(self.config.cache_dir, "sources", "minds14_us.json")
         if os.path.exists(cache_file):
-            return json.load(open(cache_file, "r", encoding="utf-8"))
+            raw = json.load(open(cache_file, "r", encoding="utf-8"))
+            m_target = min(self.target_count, len(raw))
+            rng = random.Random(self.config.random_seed)
+            shuffled = list(raw)
+            rng.shuffle(shuffled)
+            selected = shuffled[:m_target]
+            return [
+                {
+                    "raw_text": str(item.get("transcript", "")).strip(),
+                    "source": "MINDS14_EN_US"
+                }
+                for item in selected
+            ]
 
         from datasets import load_dataset
-        ds = load_dataset("PolyAI/minds14", "en-US", split="train").remove_columns(["audio"])
-        records = []
-        for i, row in enumerate(ds):
-            transcript = str(row.get("english_transcription") or row.get("transcription", "")).strip()
-            records.append({
-                "source_dataset": "MINDS14_US",
-                "source_record_id": f"MINDS14_US_{i:06d}",
-                "source_split": "train",
-                "transcript": transcript,
-                "intent": row.get("intent_class"),
-                "source_intent": str(row.get("intent_class", "")),
-                "path": row.get("path", ""),
-                "lang_id": row.get("lang_id", "en-US")
-            })
-        os.makedirs(os.path.dirname(cache_file), exist_ok=True)
-        json.dump(records, open(cache_file, "w", encoding="utf-8"))
-        return records
+        minds_raw = load_dataset("PolyAI/minds14", name="en-US", split="train").remove_columns(["audio"])
+        m_target = min(self.target_count, len(minds_raw))
+        minds_sample = minds_raw.shuffle(seed=self.config.random_seed).select(range(m_target))
+
+        return [
+            {
+                "raw_text": str(row.get("english_transcription") or row.get("transcription", "")).strip(),
+                "source": "MINDS14_EN_US"
+            }
+            for row in minds_sample
+        ]
 
 class Minds14ExtAdapter(DatasetAdapter):
     def __init__(self, config: PipelineConfig):
@@ -605,45 +471,63 @@ class Minds14ExtAdapter(DatasetAdapter):
     def fetch_records(self) -> List[dict]:
         cache_file = os.path.join(self.config.cache_dir, "sources", "minds14_ext.json")
         if os.path.exists(cache_file):
-            return json.load(open(cache_file, "r", encoding="utf-8"))
+            raw = json.load(open(cache_file, "r", encoding="utf-8"))
+            records = []
+            for item in raw:
+                src = "MINDS14_EN_AU" if item.get("lang_id") == "en-AU" else "MINDS14_EN_GB"
+                records.append({
+                    "raw_text": str(item.get("transcript", "")).strip(),
+                    "source": src
+                })
+            return records[:self.target_count]
 
         from datasets import load_dataset
-        ds_au = load_dataset("PolyAI/minds14", "en-AU", split="train").remove_columns(["audio"])
-        ds_gb = load_dataset("PolyAI/minds14", "en-GB", split="train").remove_columns(["audio"])
+        ds_au = load_dataset("PolyAI/minds14", name="en-AU", split="train").remove_columns(["audio"])
+        ds_gb = load_dataset("PolyAI/minds14", name="en-GB", split="train").remove_columns(["audio"])
 
-        records = []
-        idx = 0
-        for ds, region in [(ds_au, "en-AU"), (ds_gb, "en-GB")]:
-            for row in ds:
-                transcript = str(row.get("english_transcription") or row.get("transcription", "")).strip()
-                records.append({
-                    "source_dataset": "MINDS14_EXT",
-                    "source_record_id": f"MINDS14_EXT_{idx:06d}",
-                    "source_split": "train",
-                    "transcript": transcript,
-                    "intent": row.get("intent_class"),
-                    "source_intent": str(row.get("intent_class", "")),
-                    "path": row.get("path", ""),
-                    "lang_id": region
-                })
-                idx += 1
-        os.makedirs(os.path.dirname(cache_file), exist_ok=True)
-        json.dump(records, open(cache_file, "w", encoding="utf-8"))
+        target_au = min(654, len(ds_au))
+        target_gb = min(592, len(ds_gb))
+
+        sample_au = ds_au.shuffle(seed=self.config.random_seed).select(range(target_au))
+        sample_gb = ds_gb.shuffle(seed=self.config.random_seed).select(range(target_gb))
+
+        records = [
+            {
+                "raw_text": str(row.get("english_transcription") or row.get("transcription", "")).strip(),
+                "source": "MINDS14_EN_AU"
+            }
+            for row in sample_au
+        ]
+        records.extend([
+            {
+                "raw_text": str(row.get("english_transcription") or row.get("transcription", "")).strip(),
+                "source": "MINDS14_EN_GB"
+            }
+            for row in sample_gb
+        ])
         return records
 
 class CordV2Adapter(DatasetAdapter):
     def __init__(self, config: PipelineConfig):
-        super().__init__("CORD_V2", config.target_cord_v2, config)
+        super().__init__("CORD-v2", config.target_cord_v2, config)
 
     def fetch_records(self) -> List[dict]:
         cache_file = os.path.join(self.config.cache_dir, "sources", "cord_v2.json")
         if os.path.exists(cache_file):
-            return json.load(open(cache_file, "r", encoding="utf-8"))
+            raw = json.load(open(cache_file, "r", encoding="utf-8"))
+            c_target = min(self.target_count, len(raw))
+            return [
+                {
+                    "raw_text": str(item.get("document_text", "")).strip(),
+                    "source": "CORD-v2"
+                }
+                for item in raw[:c_target]
+            ]
 
         from datasets import load_dataset
         ds = load_dataset("naver-clova-ix/cord-v2", split="train", streaming=True)
         records = []
-        for i, item in enumerate(ds):
+        for item in ds:
             gt = item.get("ground_truth", "")
             gt_parse = {}
             if isinstance(gt, str):
@@ -652,28 +536,22 @@ class CordV2Adapter(DatasetAdapter):
             elif isinstance(gt, dict) and "gt_parse" in gt:
                 gt_parse = gt["gt_parse"]
 
-            total_price = ""
-            if isinstance(gt_parse.get("total"), dict):
-                total_price = gt_parse["total"].get("total_price", "")
-            menu = gt_parse.get("menu", []) if isinstance(gt_parse.get("menu"), list) else []
-            items = []
-            for m in menu:
-                if isinstance(m, dict) and m.get("nm"):
-                    pr = m.get("price", "")
-                    items.append(f"{m['nm']} ({pr})" if pr else str(m["nm"]))
-            doc_text = f"Receipt: {', '.join(items[:5])}; Total: {total_price}" if items or total_price else "Receipt document"
+            tokens = []
+            def walk(o):
+                if isinstance(o, str): tokens.append(o)
+                elif isinstance(o, dict):
+                    for v in o.values(): walk(v)
+                elif isinstance(o, list):
+                    for x in o: walk(x)
+            walk(gt_parse)
+            doc_text = " ".join(tokens) if tokens else "Receipt document"
 
             records.append({
-                "source_dataset": "CORD_V2",
-                "source_record_id": f"CORDV2_{i:06d}",
-                "source_split": "train",
-                "ground_truth": gt,
-                "document_text": doc_text
+                "raw_text": doc_text,
+                "source": "CORD-v2"
             })
             if len(records) >= self.target_count:
                 break
-        os.makedirs(os.path.dirname(cache_file), exist_ok=True)
-        json.dump(records, open(cache_file, "w", encoding="utf-8"))
         return records
 
 class SroieAdapter(DatasetAdapter):
@@ -683,23 +561,29 @@ class SroieAdapter(DatasetAdapter):
     def fetch_records(self) -> List[dict]:
         cache_file = os.path.join(self.config.cache_dir, "sources", "sroie.json")
         if os.path.exists(cache_file):
-            return json.load(open(cache_file, "r", encoding="utf-8"))
+            raw = json.load(open(cache_file, "r", encoding="utf-8"))
+            s_target = min(self.target_count, len(raw))
+            return [
+                {
+                    "raw_text": str(item.get("document_text", "")).strip(),
+                    "source": "SROIE"
+                }
+                for item in raw[:s_target]
+            ]
 
         from datasets import load_dataset
         ds = load_dataset("rth/sroie-2019-v2", split="train")
         records = []
-        for i, item in enumerate(ds):
+        for item in ds:
             objs = item.get("objects", {})
-            texts = objs.get("texts", objs.get("words", [])) if isinstance(objs, dict) else []
+            texts = objs.get("text", objs.get("texts", objs.get("words", [])))
+            doc_text = " ".join(str(t) for t in texts) if texts else "Receipt document"
             records.append({
-                "source_dataset": "SROIE",
-                "source_record_id": f"SROIE_{i:06d}",
-                "source_split": "train",
-                "objects": objs,
-                "document_text": " ".join(str(t) for t in texts) if texts else "Receipt document"
+                "raw_text": doc_text,
+                "source": "SROIE"
             })
-        os.makedirs(os.path.dirname(cache_file), exist_ok=True)
-        json.dump(records, open(cache_file, "w", encoding="utf-8"))
+            if len(records) >= self.target_count:
+                break
         return records
 
 class FunsdAdapter(DatasetAdapter):
@@ -709,62 +593,167 @@ class FunsdAdapter(DatasetAdapter):
     def fetch_records(self) -> List[dict]:
         cache_file = os.path.join(self.config.cache_dir, "sources", "funsd.json")
         if os.path.exists(cache_file):
-            return json.load(open(cache_file, "r", encoding="utf-8"))
+            raw = json.load(open(cache_file, "r", encoding="utf-8"))
+            f_target = min(self.target_count, len(raw))
+            return [
+                {
+                    "raw_text": str(item.get("document_text", "")).strip(),
+                    "source": "FUNSD"
+                }
+                for item in raw[:f_target]
+            ]
 
         from datasets import load_dataset
         ds = load_dataset("nielsr/funsd", split="train")
         records = []
-        for i, item in enumerate(ds):
+        for item in ds:
+            doc_text = " ".join(item.get("words", []))
             records.append({
-                "source_dataset": "FUNSD",
-                "source_record_id": f"FUNSD_{i:06d}",
-                "source_split": "train",
-                "id": str(item.get("id", i)),
-                "words": item.get("words", []),
-                "bboxes": item.get("bboxes", []),
-                "ner_tags": item.get("ner_tags", []),
-                "document_text": " ".join(item.get("words", []))
+                "raw_text": doc_text,
+                "source": "FUNSD"
             })
-        os.makedirs(os.path.dirname(cache_file), exist_ok=True)
-        json.dump(records, open(cache_file, "w", encoding="utf-8"))
+            if len(records) >= self.target_count:
+                break
         return records
 
 # ==============================================================================
-# AGENTIC SCHEMA COMPLETION ENGINE (Deterministic & LLM Fallback)
+# ORIGINAL DATASET BUILDER
+# ==============================================================================
+class OriginalDatasetBuilder:
+    """
+    Ingests source datasets, extracts ONLY 'raw_text' and 'source',
+    applies Unicode-safe English filtering, removes exact duplicates,
+    and produces original_dataset.csv with strictly 2 columns.
+    """
+    def __init__(self, config: PipelineConfig):
+        self.config = config
+        self.adapters = [
+            Banking77Adapter(config),
+            Clinc150Adapter(config),
+            Hwu64Adapter(config),
+            Minds14USAdapter(config),
+            Minds14ExtAdapter(config),
+            CordV2Adapter(config),
+            SroieAdapter(config),
+            FunsdAdapter(config)
+        ]
+
+    def build_and_save(self) -> Tuple[pd.DataFrame, List[dict]]:
+        print("\n" + "=" * 80)
+        print("STEP 1: BUILDING ORIGINAL DATASET (raw_text + source ONLY)")
+        print("=" * 80)
+
+        all_records = []
+        adapter_stats = []
+
+        for ad in self.adapters:
+            t0 = time.time()
+            records = ad.fetch_records()
+            available = len(records)
+
+            # English validation
+            english_valid = []
+            excluded_count = 0
+            for r in records:
+                txt = r.get("raw_text", "")
+                if is_unicode_safe_english(txt):
+                    english_valid.append(r)
+                else:
+                    excluded_count += 1
+
+            # Exact duplicate removal within source
+            seen_texts = set()
+            deduped = []
+            dup_count = 0
+            for r in english_valid:
+                txt = r["raw_text"]
+                if txt in seen_texts:
+                    dup_count += 1
+                else:
+                    seen_texts.add(txt)
+                    deduped.append(r)
+
+            target = min(ad.target_count, len(deduped))
+            selected = deduped[:target]
+            shortfall = max(0, ad.target_count - len(selected))
+
+            all_records.extend(selected)
+            stats = {
+                "source": ad.source_name,
+                "requested": ad.target_count,
+                "available": available,
+                "english_valid": len(english_valid),
+                "excluded_non_english": excluded_count,
+                "duplicates_removed": dup_count,
+                "selected": len(selected),
+                "shortfall": shortfall
+            }
+            adapter_stats.append(stats)
+            print(f"[{ad.source_name:14}] Avail: {available:,} | Sel: {len(selected):,} | Shortfall: {shortfall} ({time.time()-t0:.2f}s)")
+
+        df_orig = pd.DataFrame(all_records)
+
+        # Remove cross-source exact duplicate pairs if any
+        before_dedup = len(df_orig)
+        df_orig = df_orig.drop_duplicates(subset=["raw_text", "source"]).reset_index(drop=True)
+        cross_dups = before_dedup - len(df_orig)
+
+        # STRICT SCHEMA ASSERTIONS
+        assert list(df_orig.columns) == ["raw_text", "source"], f"Invalid columns: {list(df_orig.columns)}"
+        assert df_orig["raw_text"].notna().all(), "Null raw_text found!"
+        assert df_orig["source"].notna().all(), "Null source found!"
+        assert (df_orig["raw_text"].str.strip() != "").all(), "Empty raw_text found!"
+
+        os.makedirs(self.config.output_dir, exist_ok=True)
+        out_csv = os.path.join(self.config.output_dir, "original_dataset.csv")
+        df_orig.to_csv(out_csv, index=False)
+        print(f"\nSaved original_dataset.csv ({len(df_orig):,} rows, {os.path.getsize(out_csv):,} bytes)")
+        print(f"Columns in original_dataset.csv: {list(df_orig.columns)}")
+
+        # Print 5 random samples per source
+        print("\n--- 5 SAMPLES PER SOURCE ---")
+        for src in df_orig["source"].unique():
+            print(f"\n[Source: {src}]")
+            samples = df_orig[df_orig["source"] == src].sample(n=min(5, len(df_orig[df_orig["source"] == src])), random_state=42)
+            for i, (_, row) in enumerate(samples.iterrows(), 1):
+                preview = row["raw_text"][:80].replace("\n", " ")
+                print(f"  {i}. {preview}...")
+
+        return df_orig, adapter_stats
+
+# ==============================================================================
+# AGENTIC SCHEMA COMPLETION & SYNTHESIS ENGINE
 # ==============================================================================
 class AnnotationEngine:
+    """
+    Transforms raw_text into structured agentic actions using IntentRegistry and dispatch_actions.
+    STRICT SEMANTIC GROUNDING:
+    - Zero domain default fallback mappings.
+    - If intent is uncertain, classifies as clarification_required or out_of_scope.
+    - No chain-of-thought fields.
+    - No fake execution success results.
+    """
     def __init__(self, config: PipelineConfig, registry: IntentRegistry, provider: Optional[LLMProvider] = None):
         self.config = config
         self.registry = registry
         self.provider = provider
+        self.cache_dir = os.path.join(config.cache_dir, "annotations")
+        os.makedirs(self.cache_dir, exist_ok=True)
 
-    def annotate_record(self, raw_record: dict) -> dict:
-        source_dataset = raw_record["source_dataset"]
-        source_record_id = raw_record["source_record_id"]
-        
-        # Extract text representation
-        text = (
-            raw_record.get("text") or
-            raw_record.get("utterance") or
-            raw_record.get("transcript") or
-            raw_record.get("document_text") or
-            ""
-        ).strip()
+    def annotate_record(self, record_id: str, raw_text: str, source: str) -> dict:
+        cache_path = os.path.join(self.cache_dir, f"{record_id}.json")
+        if os.path.exists(cache_path):
+            cached = CheckpointManager.load_json(cache_path)
+            if cached:
+                return cached
 
-        source_intent = str(
-            raw_record.get("source_intent") or
-            raw_record.get("category") or
-            raw_record.get("source_category") or
-            ""
-        ).strip()
-
-        domain, category = TaxonomyMapper.map_taxonomy(source_dataset, source_intent, text)
-        intent_name = self._resolve_intent_name(domain, category, source_intent, text)
-        entities = self._extract_entities(intent_name, text, raw_record)
+        # Infer domain, category, intent strictly from raw_text semantics
+        domain, category, intent_name = self._infer_semantics(raw_text, source)
+        entities = self._extract_entities(intent_name, raw_text, source)
         missing_info = self._check_missing_info(intent_name, entities)
 
-        # Check for clarification requirement
         requires_clarification = len(missing_info) > 0 and intent_name not in ("search_information", "out_of_scope")
+
         if requires_clarification:
             actual_intent = "clarification_required"
             actions = []
@@ -779,9 +768,9 @@ class AnnotationEngine:
                 "action_id": "a1",
                 "intent_name": "search_information",
                 "depends_on": [],
-                "entities": {"query": text}
+                "entities": {"query": raw_text}
             }]
-            expected_response = f"Here is the information you requested regarding {text}."
+            expected_response = f"Here is the information regarding '{raw_text[:40]}'."
         else:
             actual_intent = intent_name
             actions = [{
@@ -792,20 +781,19 @@ class AnnotationEngine:
             }]
             expected_response = self._build_expected_response(intent_name, entities)
 
-        # Consequential operations require confirmation
         requires_confirmation = intent_name in (
             "transfer_money", "cancel_transfer", "card_lost", "card_stolen",
             "freeze_card", "delete_task", "delete_expense", "cancel_flight", "cancel_reservation"
         )
 
-        goal = self._derive_goal(actual_intent, text)
-        execution_plan = [f"Route {actual_intent} via dispatch_actions."] if actions else ["Provide conversational response directly."]
-        success_criteria = [f"Successfully processed {actual_intent}."]
+        goal = self._derive_goal(actual_intent, raw_text)
+        execution_plan = [f"Route {actual_intent} via dispatch_actions."] if actions else ["Provide direct response."]
 
         tool_calls = []
         if actions:
+            call_id = f"call_{hashlib.md5(record_id.encode()).hexdigest()[:8]}"
             tool_calls = [{
-                "id": f"call_{hashlib.md5(source_record_id.encode()).hexdigest()[:8]}",
+                "id": call_id,
                 "type": "function",
                 "function": {
                     "name": "dispatch_actions",
@@ -813,153 +801,173 @@ class AnnotationEngine:
                 }
             }]
 
-        return {
-            "source_dataset": source_dataset,
-            "source_record_id": source_record_id,
+        annotated = {
+            "record_id": record_id,
+            "source": source,
+            "raw_text": raw_text,
             "domain": domain,
             "category": category,
-            "user_text": text,
             "goal": goal,
             "intents": actions,
+            "entities": entities,
             "missing_information": missing_info,
-            "execution_plan": execution_plan,
             "requires_confirmation": requires_confirmation,
-            "expected_response": expected_response,
-            "success_criteria": success_criteria,
+            "execution_plan": execution_plan,
             "tool_calls": tool_calls,
+            "expected_response": expected_response,
             "validation_status": "accepted"
         }
 
-    def _resolve_intent_name(self, domain: str, category: str, source_intent: str, text: str) -> str:
-        si = source_intent.lower()
+        CheckpointManager.atomic_write_json(cache_path, annotated)
+        return annotated
+
+    def _infer_semantics(self, text: str, source: str) -> Tuple[str, str, str]:
         t = text.lower()
 
-        # Direct name checks in registry
-        if self.registry.is_valid_intent(si):
-            return si
+        # Documents & OCR
+        if source in ("CORD-v2", "SROIE"):
+            if "total" in t or "receipt" in t or "price" in t or "$" in t:
+                return "documents", "documents/receipts", "log_expense"
+            return "documents", "documents/receipts", "log_expense"
 
-        if "card_lost" in si or "lost_card" in si: return "card_lost"
-        if "card_stolen" in si or "stolen" in si: return "card_stolen"
-        if "freeze" in si or "block_card" in si: return "freeze_card"
-        if "unfreeze" in si or "unblock" in si: return "unfreeze_card"
+        if source == "FUNSD":
+            return "documents", "documents/forms", "search_information"
 
-        if "transfer" in si or "transfer" in t:
-            if "cancel" in t or "stop" in t: return "cancel_transfer"
-            return "transfer_money"
-        if "balance" in si or "balance" in t: return "check_balance"
-        if "transaction" in si or "transactions" in t: return "check_transaction"
+        # Explicit Intent Mapping (Strictly ground in raw_text)
+        # Card lost / stolen / freeze / unfreeze
+        if any(k in t for k in ("lost my card", "card is lost", "lost card", "misplaced card")):
+            return "account_and_security", "account_and_security/cards", "card_lost"
+        if any(k in t for k in ("stolen card", "card was stolen", "someone stole my card")):
+            return "account_and_security", "account_and_security/cards", "card_stolen"
+        if any(k in t for k in ("freeze my card", "freeze card", "block my card", "lock card")):
+            return "account_and_security", "account_and_security/cards", "freeze_card"
+        if any(k in t for k in ("unfreeze my card", "unfreeze card", "unblock my card", "unlock card")):
+            return "account_and_security", "account_and_security/cards", "unfreeze_card"
 
-        if category == "documents/receipts" or "expense" in si or "receipt" in si:
-            if "delete" in t or "remove" in t: return "delete_expense"
-            if "update" in t or "edit" in t: return "update_expense"
-            if "find" in t or "search" in t: return "search_expense"
-            return "log_expense"
+        # Balance & Account
+        if any(k in t for k in ("balance", "how much money", "account balance", "remaining balance", "funds")):
+            return "finance", "finance/account", "check_balance"
+        if any(k in t for k in ("statement", "recent transactions", "transaction history", "check transaction")):
+            return "finance", "finance/transactions", "check_transaction"
 
-        if "flight" in si or "flight" in t:
-            if "cancel" in t: return "cancel_flight"
-            if "book" in t or "reserve" in t: return "book_flight"
-            return "search_flight"
+        # Transfer & Payments
+        if any(k in t for k in ("cancel transfer", "stop transfer", "cancel payment")):
+            return "finance", "finance/transfers", "cancel_transfer"
+        if any(k in t for k in ("transfer", "send money", "wire money", "pay to")):
+            return "finance", "finance/transfers", "transfer_money"
 
-        if "reservation" in si or "restaurant" in t or "hotel" in t:
-            if "cancel" in t: return "cancel_reservation"
-            if "book" in t or "reserve" in t: return "book_reservation"
-            return "search_reservation"
+        # Expenses
+        if any(k in t for k in ("delete expense", "remove expense")):
+            return "finance", "finance/expenses", "delete_expense"
+        if any(k in t for k in ("update expense", "edit expense", "change expense")):
+            return "finance", "finance/expenses", "update_expense"
+        if any(k in t for k in ("search expense", "find expense", "track expense")):
+            return "finance", "finance/expenses", "search_expense"
+        if any(k in t for k in ("log expense", "record expense", "bought", "spent")):
+            return "finance", "finance/expenses", "log_expense"
 
-        if "alarm" in si or "alarm" in t:
-            if "cancel" in t or "turn off" in t: return "cancel_alarm"
-            if "update" in t or "change" in t: return "update_alarm"
-            if "search" in t or "what" in t: return "search_alarm"
-            return "create_alarm"
+        # Alarms
+        if any(k in t for k in ("cancel alarm", "turn off alarm", "delete alarm")):
+            return "productivity", "productivity/alarms", "cancel_alarm"
+        if any(k in t for k in ("change alarm", "update alarm", "snooze alarm")):
+            return "productivity", "productivity/alarms", "update_alarm"
+        if any(k in t for k in ("what alarms", "list alarms", "show alarms", "check alarm")):
+            return "productivity", "productivity/alarms", "search_alarm"
+        if any(k in t for k in ("set alarm", "wake me up", "alarm for")):
+            return "productivity", "productivity/alarms", "create_alarm"
 
-        if "reminder" in si or "remind" in t:
-            if "cancel" in t or "delete" in t: return "cancel_reminder"
-            if "update" in t or "change" in t: return "update_reminder"
-            if "search" in t or "find" in t: return "search_reminder"
-            return "create_reminder"
+        # Reminders
+        if any(k in t for k in ("cancel reminder", "delete reminder", "remove reminder")):
+            return "productivity", "productivity/reminders", "cancel_reminder"
+        if any(k in t for k in ("update reminder", "change reminder", "postpone reminder")):
+            return "productivity", "productivity/reminders", "update_reminder"
+        if any(k in t for k in ("what reminders", "list reminders", "show reminders", "search reminder")):
+            return "productivity", "productivity/reminders", "search_reminder"
+        if any(k in t for k in ("remind me", "set reminder", "create reminder")):
+            return "productivity", "productivity/reminders", "create_reminder"
 
-        if "task" in si or "todo" in t:
-            if "complete" in t or "done" in t: return "complete_task"
-            if "delete" in t or "remove" in t: return "delete_task"
-            if "update" in t or "edit" in t: return "update_task"
-            if "search" in t or "find" in t: return "search_task"
-            return "create_task"
+        # Tasks
+        if any(k in t for k in ("complete task", "finish task", "done with task", "mark task")):
+            return "productivity", "productivity/tasks", "complete_task"
+        if any(k in t for k in ("delete task", "remove task", "clear task")):
+            return "productivity", "productivity/tasks", "delete_task"
+        if any(k in t for k in ("update task", "edit task", "modify task")):
+            return "productivity", "productivity/tasks", "update_task"
+        if any(k in t for k in ("what tasks", "list tasks", "show tasks", "find task")):
+            return "productivity", "productivity/tasks", "search_task"
+        if any(k in t for k in ("add task", "new task", "create task", "todo")):
+            return "productivity", "productivity/tasks", "create_task"
 
-        if domain == "information":
-            return "search_information"
-        if domain == "other" and category == "other/out_of_scope":
-            return "out_of_scope"
-        if domain == "other" and category == "other/clarification":
-            return "clarification_required"
+        # Flights
+        if any(k in t for k in ("cancel flight", "cancel my flight")):
+            return "travel", "travel/flights", "cancel_flight"
+        if any(k in t for k in ("book flight", "book a flight", "reserve flight")):
+            return "travel", "travel/flights", "book_flight"
+        if any(k in t for k in ("flight", "airline", "plane ticket", "flights to")):
+            return "travel", "travel/flights", "search_flight"
 
-        # Default fallbacks per domain
-        domain_default_map = {
-            "finance": "check_balance",
-            "productivity": "create_task",
-            "travel": "search_flight",
-            "commerce": "search_information",
-            "communication": "search_information",
-            "account_and_security": "check_balance",
-            "documents": "log_expense",
-            "information": "search_information",
-            "other": "search_information"
-        }
-        return domain_default_map.get(domain, "search_information")
+        # Reservations
+        if any(k in t for k in ("cancel reservation", "cancel my table", "cancel booking")):
+            return "travel", "travel/reservations", "cancel_reservation"
+        if any(k in t for k in ("book table", "reserve table", "book reservation", "make a reservation")):
+            return "travel", "travel/reservations", "book_reservation"
+        if any(k in t for k in ("reservation", "table for", "restaurant booking")):
+            return "travel", "travel/reservations", "search_reservation"
 
-    def _extract_entities(self, intent_name: str, text: str, raw_record: dict) -> dict:
+        # General Information
+        if any(k in t for k in ("what is", "how do i", "can you tell me", "meaning of", "weather", "time", "date")):
+            return "information", "information/general_information", "search_information"
+
+        # STRICT ANTI-DRIFT: If unknown, classify as clarification_required or out_of_scope
+        # NEVER apply arbitrary domain fallbacks like "finance -> check_balance"
+        if any(k in t for k in ("help", "assist", "want to", "need to", "can i")):
+            return "other", "other/clarification", "clarification_required"
+
+        return "other", "other/out_of_scope", "out_of_scope"
+
+    def _extract_entities(self, intent_name: str, text: str, source: str) -> dict:
         entities = {}
-        # Amount extraction ($XX.XX or XX.XX)
-        amt_match = re.search(r"\$?\s*(\d+(?:[.,]\d{2})?)", text)
+        # Amount ($XX.XX or XX.XX)
+        amt_match = re.search(r"[$]?\s*(\d+(?:[.,]\d{2})?)", text)
         if amt_match:
             entities["amount"] = amt_match.group(1).replace(",", ".")
 
-        # Currency
-        if "$" in text or "dollar" in text.lower():
-            entities["currency"] = "USD"
-        elif "€" in text or "euro" in text.lower():
-            entities["currency"] = "EUR"
-        elif "£" in text or "pound" in text.lower():
-            entities["currency"] = "GBP"
+        if "$" in text or "dollar" in text.lower(): entities["currency"] = "USD"
+        elif "€" in text or "euro" in text.lower(): entities["currency"] = "EUR"
+        elif "£" in text or "pound" in text.lower(): entities["currency"] = "GBP"
 
         # Time extraction
         time_match = re.search(r"(\d{1,2}(?::\d{2})?\s*(?:am|pm|a\.m\.|p\.m\.))", text, re.IGNORECASE)
-        if time_match:
-            entities["time"] = time_match.group(1).lower()
+        if time_match: entities["time"] = time_match.group(1).lower()
 
-        # Date extraction
+        # Date keywords
         for kw in ("tomorrow", "today", "tonight", "next week", "monday", "friday"):
             if kw in text.lower():
                 entities["date"] = kw
                 break
 
-        # Document/receipt specific fields
-        if raw_record.get("source_dataset") in ("CORD_V2", "SROIE"):
+        if source in ("CORD-v2", "SROIE"):
             entities["document_type"] = "receipt"
-            if "Total:" in text:
-                t_match = re.search(r"Total:\s*(\$?\d+(?:[.,]\d+)?)", text)
-                if t_match:
-                    entities["amount"] = t_match.group(1).replace("$", "").strip()
 
         return entities
 
     def _check_missing_info(self, intent_name: str, entities: dict) -> List[str]:
         reg_item = self.registry.get_intent(intent_name)
-        if not reg_item:
-            return []
+        if not reg_item: return []
         required = reg_item.get("required_entities", [])
-        missing = [req for req in required if req not in entities]
-        return missing
+        return [req for req in required if req not in entities]
 
     def _derive_goal(self, intent_name: str, text: str) -> str:
         reg_item = self.registry.get_intent(intent_name)
         desc = reg_item.get("description", intent_name.replace("_", " ")) if reg_item else intent_name
-        return f"User wants to {desc.lower()} based on: '{text[:60]}'."
+        return f"User intends to {desc.lower()} based on: '{text[:60]}'."
 
     def _build_expected_response(self, intent_name: str, entities: dict) -> str:
         readable = intent_name.replace("_", " ")
         if entities:
             ent_summary = ", ".join(f"{k}: {v}" for k, v in list(entities.items())[:3])
-            return f"I have initiated {readable} with details ({ent_summary})."
-        return f"I have processed your request to {readable}."
+            return f"I have prepared {readable} with parameters ({ent_summary})."
+        return f"I have prepared your request to {readable}."
 
 # ==============================================================================
 # VALIDATION ENGINE
@@ -969,49 +977,42 @@ class ValidationEngine:
         self.registry = registry
 
     def validate(self, annotated: dict) -> Tuple[bool, Optional[str], Optional[str]]:
-        intents = annotated.get("intents", [])
         domain = annotated.get("domain")
         category = annotated.get("category")
+        intents = annotated.get("intents", [])
 
-        # 1. Domain & Category membership
         if domain not in DOMAINS:
-            return False, "invalid_domain", f"Domain '{domain}' not in controlled taxonomy."
+            return False, "invalid_domain", f"Domain '{domain}' not in taxonomy."
         if category not in CATEGORIES:
-            return False, "invalid_category", f"Category '{category}' not in controlled taxonomy."
+            return False, "invalid_category", f"Category '{category}' not in taxonomy."
 
-        # 2. Intent validity
         action_ids = set()
         for act in intents:
             aid = act.get("action_id")
             iname = act.get("intent_name")
             if not aid:
-                return False, "missing_action_id", "Action object missing action_id."
+                return False, "missing_action_id", "Missing action_id."
             if aid in action_ids:
                 return False, "duplicate_action_id", f"Duplicate action_id '{aid}'."
             action_ids.add(aid)
 
             if not self.registry.is_valid_intent(iname):
-                return False, "unregistered_intent", f"Intent '{iname}' not registered in IntentRegistry."
+                return False, "unregistered_intent", f"Intent '{iname}' not registered in registry."
 
-            # Dependency verification
             for dep in act.get("depends_on", []):
                 if dep not in action_ids:
                     return False, "invalid_dependency", f"Dependency '{dep}' does not precede '{aid}'."
 
-        # 3. Tool call validity
         tool_calls = annotated.get("tool_calls", [])
-        if intents and not tool_calls:
-            return False, "missing_tool_calls", "Actions present but tool_calls is empty."
-
         for tc in tool_calls:
             if tc.get("function", {}).get("name") != "dispatch_actions":
                 return False, "invalid_tool_name", "Tool name must strictly be 'dispatch_actions'."
             try:
                 args = json.loads(tc.get("function", {}).get("arguments", "{}"))
                 if "actions" not in args or not isinstance(args["actions"], list):
-                    return False, "malformed_tool_arguments", "Tool arguments must contain 'actions' list."
+                    return False, "malformed_tool_arguments", "Tool arguments missing 'actions' list."
             except Exception as e:
-                return False, "malformed_json_arguments", f"Tool arguments failed JSON parsing: {e}"
+                return False, "malformed_json_arguments", f"Tool arguments JSON parse error: {e}"
 
         return True, None, None
 
@@ -1021,20 +1022,31 @@ class ValidationEngine:
 class SplitManager:
     @staticmethod
     def assign_splits(records: List[dict], seed: int = 42) -> Tuple[List[dict], List[dict], List[dict]]:
-        """
-        Group-aware 80/10/10 split on source_record_id ensuring zero leakage.
-        """
         rng = random.Random(seed)
-        shuffled = list(records)
-        rng.shuffle(shuffled)
 
-        n = len(shuffled)
-        n_train = int(round(0.80 * n))
-        n_val = int(round(0.10 * n))
+        # Group records by normalized raw_text to guarantee zero text leakage across splits
+        groups: Dict[str, List[dict]] = {}
+        for r in records:
+            key = r.get("raw_text", "").strip().lower()
+            groups.setdefault(key, []).append(r)
 
-        train = shuffled[:n_train]
-        val = shuffled[n_train:n_train + n_val]
-        test = shuffled[n_train + n_val:]
+        unique_keys = list(groups.keys())
+        rng.shuffle(unique_keys)
+
+        total_records = len(records)
+        target_train = int(round(0.80 * total_records))
+        target_val = int(round(0.10 * total_records))
+
+        train, val, test = [], [], []
+
+        for key in unique_keys:
+            group = groups[key]
+            if len(train) + len(group) <= target_train or (len(val) >= target_val and len(test) >= (total_records - target_train - target_val)):
+                train.extend(group)
+            elif len(val) + len(group) <= target_val:
+                val.extend(group)
+            else:
+                test.extend(group)
 
         for r in train: r["split"] = "train"
         for r in val: r["split"] = "validation"
@@ -1044,13 +1056,21 @@ class SplitManager:
 
     @staticmethod
     def verify_no_leakage(train: List[dict], val: List[dict], test: List[dict]) -> bool:
-        s_train = {r["source_record_id"] for r in train}
-        s_val = {r["source_record_id"] for r in val}
-        s_test = {r["source_record_id"] for r in test}
+        s_train = {r["record_id"] for r in train}
+        s_val = {r["record_id"] for r in val}
+        s_test = {r["record_id"] for r in test}
 
         assert len(s_train.intersection(s_val)) == 0, "Leakage between train and validation!"
         assert len(s_train.intersection(s_test)) == 0, "Leakage between train and test!"
         assert len(s_val.intersection(s_test)) == 0, "Leakage between validation and test!"
+
+        # Semantic/lexical text leakage check
+        t_train = {r.get("raw_text", "").strip().lower() for r in train}
+        t_val = {r.get("raw_text", "").strip().lower() for r in val}
+        t_test = {r.get("raw_text", "").strip().lower() for r in test}
+        assert len(t_train.intersection(t_val)) == 0, "Text leakage between train and validation!"
+        assert len(t_train.intersection(t_test)) == 0, "Text leakage between train and test!"
+        assert len(t_val.intersection(t_test)) == 0, "Text leakage between validation and test!"
         return True
 
 # ==============================================================================
@@ -1061,38 +1081,24 @@ class DatasetExporter:
 
     @staticmethod
     def format_jsonl_record(record: dict) -> dict:
-        user_text = record.get("user_text", "")
+        raw_text = record.get("raw_text", "")
         tool_calls = record.get("tool_calls", [])
         expected_response = record.get("expected_response", "")
 
         messages = [
             {"role": "system", "content": DatasetExporter.SYSTEM_MESSAGE},
-            {"role": "user", "content": user_text}
+            {"role": "user", "content": raw_text}
         ]
 
         if tool_calls:
-            # Assistant with tool call
+            # Model emits tool call to dispatch_actions
             messages.append({
                 "role": "assistant",
-                "content": "I will dispatch your requested actions.",
+                "content": "",
                 "tool_calls": tool_calls
             })
-            # Simulated tool response
-            for tc in tool_calls:
-                call_id = tc.get("id", "call_default")
-                messages.append({
-                    "role": "tool",
-                    "tool_call_id": call_id,
-                    "name": "dispatch_actions",
-                    "content": json.dumps({"status": "success", "executed_actions": len(record.get("intents", []))})
-                })
-            # Final assistant completion
-            messages.append({
-                "role": "assistant",
-                "content": expected_response
-            })
         else:
-            # Informational / clarification / out-of-scope direct response
+            # Non-tool cases: clarification required or out of scope
             messages.append({
                 "role": "assistant",
                 "content": expected_response
@@ -1106,7 +1112,6 @@ class DatasetExporter:
     @staticmethod
     def export_all(
         config: PipelineConfig,
-        original_records: List[dict],
         annotated_records: List[dict],
         synthetic_records: List[dict],
         rejected_records: List[dict],
@@ -1116,31 +1121,38 @@ class DatasetExporter:
     ):
         os.makedirs(config.output_dir, exist_ok=True)
 
-        # 1. output/original_dataset.csv
-        df_orig = pd.DataFrame(original_records)
-        orig_path = os.path.join(config.output_dir, "original_dataset.csv")
-        df_orig.to_csv(orig_path, index=False)
-        print(f"Exported original_dataset.csv ({len(df_orig)} rows)")
-
-        # 2. output/synthetic_dataset.csv
+        # 1. output/synthetic_dataset.csv
         df_synth = pd.DataFrame(synthetic_records)
         synth_path = os.path.join(config.output_dir, "synthetic_dataset.csv")
         df_synth.to_csv(synth_path, index=False)
-        print(f"Exported synthetic_dataset.csv ({len(df_synth)} rows)")
+        print(f"Exported synthetic_dataset.csv ({len(df_synth):,} rows)")
 
-        # 3. output/combined_dataset.csv
-        df_comb = pd.DataFrame(annotated_records)
+        # 2. output/combined_dataset.csv
+        df_comb = pd.DataFrame([
+            {
+                "record_id": r["record_id"],
+                "source": r["source"],
+                "raw_text": r["raw_text"],
+                "domain": r["domain"],
+                "category": r["category"],
+                "goal": r["goal"],
+                "intents": json.dumps(r["intents"]),
+                "validation_status": r["validation_status"],
+                "split": r.get("split", "")
+            }
+            for r in annotated_records
+        ])
         comb_path = os.path.join(config.output_dir, "combined_dataset.csv")
         df_comb.to_csv(comb_path, index=False)
-        print(f"Exported combined_dataset.csv ({len(df_comb)} rows)")
+        print(f"Exported combined_dataset.csv ({len(df_comb):,} rows)")
 
-        # 4. output/rejected_records.csv
+        # 3. output/rejected_records.csv
         df_rej = pd.DataFrame(rejected_records)
         rej_path = os.path.join(config.output_dir, "rejected_records.csv")
         df_rej.to_csv(rej_path, index=False)
-        print(f"Exported rejected_records.csv ({len(df_rej)} rows)")
+        print(f"Exported rejected_records.csv ({len(df_rej):,} rows)")
 
-        # 5. JSONL files
+        # 4. JSONL files
         for name, recs in [
             ("latentspace_complete_dataset.jsonl", annotated_records),
             ("latentspace_train.jsonl", train_records),
@@ -1152,7 +1164,7 @@ class DatasetExporter:
                 for r in recs:
                     formatted = DatasetExporter.format_jsonl_record(r)
                     f.write(json.dumps(formatted, ensure_ascii=False) + "\n")
-            print(f"Exported {name} ({len(recs)} records)")
+            print(f"Exported {name} ({len(recs):,} records)")
 
 # ==============================================================================
 # QUALITY REPORTER
@@ -1170,27 +1182,14 @@ class QualityReporter:
         test_records: List[dict],
         ledger: RequestLedger
     ) -> dict:
-        total_requested = sum(s["requested"] for s in adapter_stats)
-        total_available = sum(s["available"] for s in adapter_stats)
-        total_selected = sum(s["selected"] for s in adapter_stats)
-        total_shortfall = sum(s["shortfall"] for s in adapter_stats)
-        total_english = sum(s["english_valid"] for s in adapter_stats)
-        total_excluded = sum(s["excluded_non_english"] for s in adapter_stats)
-
-        # Distributions
-        domain_counts = {}
-        category_counts = {}
-        intent_counts = {}
-        source_counts = {}
-
+        domain_counts, category_counts, intent_counts, source_counts = {}, {}, {}, {}
         for r in annotated_records:
             d = r.get("domain", "other")
             c = r.get("category", "other/out_of_scope")
-            s = r.get("source_dataset", "unknown")
+            s = r.get("source", "unknown")
             domain_counts[d] = domain_counts.get(d, 0) + 1
             category_counts[c] = category_counts.get(c, 0) + 1
             source_counts[s] = source_counts.get(s, 0) + 1
-
             for act in r.get("intents", []):
                 iname = act.get("intent_name", "unknown")
                 intent_counts[iname] = intent_counts.get(iname, 0) + 1
@@ -1199,20 +1198,20 @@ class QualityReporter:
             "pipeline_version": config.pipeline_version,
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "random_seed": config.random_seed,
-            "requested_counts": {s["dataset_name"]: s["requested"] for s in adapter_stats},
-            "available_counts": {s["dataset_name"]: s["available"] for s in adapter_stats},
-            "selected_counts": {s["dataset_name"]: s["selected"] for s in adapter_stats},
-            "shortfalls": {s["dataset_name"]: s["shortfall"] for s in adapter_stats},
+            "requested_counts": {s["source"]: s["requested"] for s in adapter_stats},
+            "available_counts": {s["source"]: s["available"] for s in adapter_stats},
+            "selected_counts": {s["source"]: s["selected"] for s in adapter_stats},
+            "shortfalls": {s["source"]: s["shortfall"] for s in adapter_stats},
             "source_dataset_counts": source_counts,
-            "english_counts": {s["dataset_name"]: s["english_valid"] for s in adapter_stats},
-            "excluded_counts": {s["dataset_name"]: s["excluded_non_english"] for s in adapter_stats},
+            "english_counts": {s["source"]: s["english_valid"] for s in adapter_stats},
+            "excluded_counts": {s["source"]: s["excluded_non_english"] for s in adapter_stats},
             "summary": {
-                "total_requested": total_requested,
-                "total_available": total_available,
-                "total_selected": total_selected,
-                "total_shortfall": total_shortfall,
-                "total_english_valid": total_english,
-                "total_excluded_non_english": total_excluded
+                "total_requested": sum(s["requested"] for s in adapter_stats),
+                "total_available": sum(s["available"] for s in adapter_stats),
+                "total_selected": sum(s["selected"] for s in adapter_stats),
+                "total_shortfall": sum(s["shortfall"] for s in adapter_stats),
+                "total_english_valid": sum(s["english_valid"] for s in adapter_stats),
+                "total_excluded_non_english": sum(s["excluded_non_english"] for s in adapter_stats)
             },
             "domain_distribution": domain_counts,
             "category_distribution": category_counts,
@@ -1235,7 +1234,7 @@ class QualityReporter:
 
         report_path = os.path.join(config.output_dir, "dataset_report.json")
         CheckpointManager.atomic_write_json(report_path, report)
-        print(f"Exported dataset_report.json")
+        print("Exported dataset_report.json")
         return report
 
 # ==============================================================================
@@ -1247,19 +1246,9 @@ class LatentSpacePipeline:
         self.registry = IntentRegistry(os.path.join(config.config_dir, "intent_registry.json"))
         self.ledger = RequestLedger(config)
         self.provider = OpenRouterProvider(config, self.ledger)
+        self.orig_builder = OriginalDatasetBuilder(config)
         self.annotation_engine = AnnotationEngine(config, self.registry, self.provider)
         self.validation_engine = ValidationEngine(self.registry)
-
-        self.adapters = [
-            Banking77Adapter(config),
-            Clinc150Adapter(config),
-            Hwu64Adapter(config),
-            Minds14USAdapter(config),
-            Minds14ExtAdapter(config),
-            CordV2Adapter(config),
-            SroieAdapter(config),
-            FunsdAdapter(config)
-        ]
 
     def run(self):
         print("=" * 80)
@@ -1267,79 +1256,74 @@ class LatentSpacePipeline:
         print("=" * 80)
         print(f"API key configured: {'YES' if self.provider.is_configured() else 'NO'}")
 
-        # Step 1: Fetch & Sample Source Datasets
-        all_original = []
-        adapter_stats = []
-        print("\n--- STEP 1: FETCHING & SAMPLING SOURCE DATASETS ---")
-        for adapter in self.adapters:
-            t0 = time.time()
-            raw_records = adapter.fetch_records()
-            selected, stats = adapter.select_sample(raw_records)
-            all_original.extend(selected)
-            adapter_stats.append(stats)
-            print(f"[{adapter.dataset_name}] Avail: {stats['available']:,} | Req: {stats['requested']:,} | Sel: {stats['selected']:,} | Shortfall: {stats['shortfall']} ({time.time()-t0:.2f}s)")
+        # 1. Build and save original_dataset.csv (raw_text + source ONLY)
+        df_orig, adapter_stats = self.orig_builder.build_and_save()
 
-        total_selected = len(all_original)
-        print(f"\nTotal Selected Baseline Records: {total_selected:,} / {self.config.total_target:,}")
+        # 2. Agentic Annotation & Synthesis
+        print("\n" + "=" * 80)
+        print("STEP 2: AGENTIC SCHEMA COMPLETION & SYNTHESIS")
+        print("=" * 80)
 
-        # Step 2: Agentic Schema Completion & Validation
-        print("\n--- STEP 2: AGENTIC SCHEMA COMPLETION & VALIDATION ---")
         annotated_records = []
         rejected_records = []
         synthetic_records = []
 
-        for r in all_original:
-            annotated = self.annotation_engine.annotate_record(r)
-            is_valid, err_cat, err_msg = self.validation_engine.validate(annotated)
+        for idx, row in df_orig.iterrows():
+            record_id = f"{row['source']}_{idx:06d}"
+            raw_text = row["raw_text"]
+            source = row["source"]
+
+            ann = self.annotation_engine.annotate_record(record_id, raw_text, source)
+            is_valid, err_cat, err_msg = self.validation_engine.validate(ann)
 
             if is_valid:
-                annotated_records.append(annotated)
-                # Step 3: Synthetic Dataset Extraction
-                synth_entry = {
-                    "source_dataset": annotated["source_dataset"],
-                    "source_record_id": annotated["source_record_id"],
-                    "domain": annotated["domain"],
-                    "category": annotated["category"],
-                    "generated_user_text": annotated["user_text"],
-                    "generated_context": "",
-                    "generated_goal": annotated["goal"],
-                    "generated_entities": json.dumps(annotated["intents"][0]["entities"] if annotated["intents"] else {}),
-                    "generated_missing_information": json.dumps(annotated["missing_information"]),
-                    "generated_execution_plan": json.dumps(annotated["execution_plan"]),
-                    "generated_tool_calls": json.dumps(annotated["tool_calls"]),
-                    "generated_expected_response": annotated["expected_response"],
-                    "generated_success_criteria": json.dumps(annotated["success_criteria"]),
-                    "generation_model": self.config.annotation_model,
-                    "generation_stage": "schema_completion"
-                }
-                synthetic_records.append(synth_entry)
+                annotated_records.append(ann)
+                synthetic_records.append({
+                    "record_id": record_id,
+                    "source": source,
+                    "raw_text": raw_text,
+                    "domain": ann["domain"],
+                    "category": ann["category"],
+                    "goal": ann["goal"],
+                    "intents": json.dumps(ann["intents"]),
+                    "entities": json.dumps(ann["entities"]),
+                    "missing_information": json.dumps(ann["missing_information"]),
+                    "requires_confirmation": ann["requires_confirmation"],
+                    "execution_plan": json.dumps(ann["execution_plan"]),
+                    "tool_calls": json.dumps(ann["tool_calls"]),
+                    "expected_response": ann["expected_response"],
+                    "model": self.config.annotation_model
+                })
             else:
                 rejected_records.append({
-                    "source_dataset": r["source_dataset"],
-                    "source_record_id": r["source_record_id"],
+                    "record_id": record_id,
+                    "source": source,
+                    "raw_text": raw_text,
                     "stage": "validation",
                     "reason": err_msg,
                     "error_category": err_cat,
                     "timestamp": datetime.now(timezone.utc).isoformat()
                 })
 
-        print(f"Successfully Annotated & Validated: {len(annotated_records):,}")
-        print(f"Rejected: {len(rejected_records):,}")
+        print(f"Annotated & Validated: {len(annotated_records):,} accepted, {len(rejected_records):,} rejected.")
         print(f"Synthetic Records Extracted: {len(synthetic_records):,}")
 
-        # Step 4: Split Assignment (Zero Leakage)
-        print("\n--- STEP 3: TRAIN / VALIDATION / TEST SPLIT (ZERO LEAKAGE) ---")
+        # 3. Train / Validation / Test Splits (Zero Leakage)
+        print("\n" + "=" * 80)
+        print("STEP 3: TRAIN / VALIDATION / TEST SPLIT (ZERO LEAKAGE)")
+        print("=" * 80)
         train_records, val_records, test_records = SplitManager.assign_splits(
             annotated_records, seed=self.config.random_seed
         )
         SplitManager.verify_no_leakage(train_records, val_records, test_records)
         print(f"Splits: Train = {len(train_records):,} (80%) | Val = {len(val_records):,} (10%) | Test = {len(test_records):,} (10%)")
 
-        # Step 5: Export All Files
-        print("\n--- STEP 4: EXPORTING DATASETS & JSONL ARTIFACTS ---")
+        # 4. Export All Outputs
+        print("\n" + "=" * 80)
+        print("STEP 4: EXPORTING OUTPUTS & TRAINING ARTIFACTS")
+        print("=" * 80)
         DatasetExporter.export_all(
             self.config,
-            all_original,
             annotated_records,
             synthetic_records,
             rejected_records,
@@ -1348,8 +1332,10 @@ class LatentSpacePipeline:
             test_records
         )
 
-        # Step 6: Generate Quality Report
-        print("\n--- STEP 5: GENERATING QUALITY REPORT ---")
+        # 5. Generate Report
+        print("\n" + "=" * 80)
+        print("STEP 5: QUALITY METRICS REPORT")
+        print("=" * 80)
         QualityReporter.generate_report(
             self.config,
             adapter_stats,
@@ -1363,7 +1349,7 @@ class LatentSpacePipeline:
         )
 
         print("\n" + "=" * 80)
-        print("LATENTSPACE DATASET PIPELINE COMPLETED SUCCESSFULLY!")
+        print("PIPELINE EXECUTION COMPLETED SUCCESSFULLY!")
         print("=" * 80)
 
 if __name__ == "__main__":
